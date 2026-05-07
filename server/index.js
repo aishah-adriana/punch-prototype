@@ -1,18 +1,28 @@
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
+const db = require('./db');
 const { auth, adminOnly } = require('./middleware/auth');
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : '*'
+}));
 app.use(express.json());
+
+// Ensure DB is initialised before any request is handled
+app.use(async (req, res, next) => {
+  try { await db.ensureInit(); next(); }
+  catch (e) { res.status(500).json({ error: 'Database initialisation failed: ' + e.message }); }
+});
 
 // Public route — no auth required
 app.use('/api/auth', require('./routes/auth'));
 
-// Teacher portal — auth required, teacher role
+// Teacher portal — auth required, teacher role enforced inside router
 app.use('/api/teacher-portal', require('./routes/teacher-portal'));
 
-// Admin-only routes — auth + admin role enforced inside each router
+// Admin-only routes
 app.use('/api/subjects', auth, adminOnly, require('./routes/subjects'));
 app.use('/api/teachers', auth, adminOnly, require('./routes/teachers'));
 app.use('/api/students', auth, adminOnly, require('./routes/students'));
@@ -29,5 +39,17 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: err.message });
 });
 
-const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`Punch Tracker server running on port ${PORT}`));
+// Serve React frontend (production / Vercel)
+const distPath = path.join(__dirname, '../client/dist');
+app.use(express.static(distPath));
+app.get('*', (req, res) => {
+  res.sendFile(path.join(distPath, 'index.html'));
+});
+
+// Local development: listen directly
+if (require.main === module) {
+  const PORT = process.env.PORT || 3001;
+  app.listen(PORT, () => console.log(`Punch Tracker server running on port ${PORT}`));
+}
+
+module.exports = app;
