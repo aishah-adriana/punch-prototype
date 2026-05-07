@@ -2,7 +2,7 @@ const express = require('express');
 const db = require('../db');
 const router = express.Router();
 
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   const { teacher_id, month, year } = req.query;
   let query = `
     SELECT s.*, t.name as teacher_name,
@@ -19,20 +19,21 @@ router.get('/', (req, res) => {
   if (year) { conditions.push('s.year = ?'); params.push(year); }
   if (conditions.length) query += ' WHERE ' + conditions.join(' AND ');
   query += ' ORDER BY s.session_date DESC';
-  const sessions = db.prepare(query).all(...params);
 
-  const result = sessions.map(sess => {
-    const attendance = db.prepare(`
-      SELECT a.*, st.name as student_name
-      FROM attendance a JOIN students st ON st.id = a.student_id
-      WHERE a.session_id = ?
-    `).all(sess.id);
+  const sessions = await db.all(query, params);
+  const result = await Promise.all(sessions.map(async sess => {
+    const attendance = await db.all(
+      `SELECT a.*, st.name as student_name
+       FROM attendance a JOIN students st ON st.id = a.student_id
+       WHERE a.session_id = ?`,
+      [sess.id]
+    );
     return { ...sess, attendance };
-  });
+  }));
   res.json(result);
 });
 
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   const { teacher_id, student_id, group_id, session_date, duration_hours, class_type, notes = '' } = req.body;
   if (!teacher_id || !session_date || !duration_hours || !class_type)
     return res.status(400).json({ error: 'teacher_id, session_date, duration_hours, class_type required' });
@@ -41,38 +42,47 @@ router.post('/', (req, res) => {
   const month = date.getMonth() + 1;
   const year = date.getFullYear();
 
-  const result = db.prepare(
-    'INSERT INTO sessions (teacher_id, student_id, group_id, session_date, duration_hours, class_type, month, year, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(teacher_id, student_id || null, group_id || null, session_date, duration_hours, class_type, month, year, notes);
-
+  const result = await db.run(
+    'INSERT INTO sessions (teacher_id, student_id, group_id, session_date, duration_hours, class_type, month, year, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [teacher_id, student_id || null, group_id || null, session_date, duration_hours, class_type, month, year, notes]
+  );
   const sessionId = result.lastInsertRowid;
 
   if (class_type === '1on1' && student_id) {
-    db.prepare('INSERT INTO attendance (session_id, student_id, attended) VALUES (?, ?, 1)').run(sessionId, student_id);
+    await db.run('INSERT INTO attendance (session_id, student_id, attended) VALUES (?, ?, 1)', [sessionId, student_id]);
   } else if (class_type === 'group' && group_id) {
-    const groupStudents = db.prepare('SELECT id FROM students WHERE group_id = ? AND active = 1').all(group_id);
-    const insertAtt = db.prepare('INSERT INTO attendance (session_id, student_id, attended) VALUES (?, ?, 1)');
-    for (const s of groupStudents) insertAtt.run(sessionId, s.id);
+    const groupStudents = await db.all('SELECT id FROM students WHERE group_id = ? AND active = 1', [group_id]);
+    if (groupStudents.length > 0) {
+      await db.batch(groupStudents.map(s => ({
+        sql: 'INSERT INTO attendance (session_id, student_id, attended) VALUES (?, ?, 1)',
+        args: [sessionId, s.id]
+      })));
+    }
   }
 
-  const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId);
-  const attendance = db.prepare(`
-    SELECT a.*, st.name as student_name FROM attendance a
-    JOIN students st ON st.id = a.student_id WHERE a.session_id = ?
-  `).all(sessionId);
+  const session = await db.get('SELECT * FROM sessions WHERE id = ?', [sessionId]);
+  const attendance = await db.all(
+    `SELECT a.*, st.name as student_name FROM attendance a
+     JOIN students st ON st.id = a.student_id WHERE a.session_id = ?`,
+    [sessionId]
+  );
   res.json({ ...session, attendance });
 });
 
-router.put('/:id/attendance', (req, res) => {
+router.put('/:id/attendance', async (req, res) => {
   const { attendance } = req.body;
   if (!Array.isArray(attendance)) return res.status(400).json({ error: 'attendance array required' });
-  const update = db.prepare('UPDATE attendance SET attended = ? WHERE session_id = ? AND student_id = ?');
-  for (const a of attendance) update.run(a.attended ? 1 : 0, req.params.id, a.student_id);
+  if (attendance.length > 0) {
+    await db.batch(attendance.map(a => ({
+      sql: 'UPDATE attendance SET attended = ? WHERE session_id = ? AND student_id = ?',
+      args: [a.attended ? 1 : 0, req.params.id, a.student_id]
+    })));
+  }
   res.json({ success: true });
 });
 
-router.delete('/:id', (req, res) => {
-  db.prepare('DELETE FROM sessions WHERE id = ?').run(req.params.id);
+router.delete('/:id', async (req, res) => {
+  await db.run('DELETE FROM sessions WHERE id = ?', [req.params.id]);
   res.json({ success: true });
 });
 

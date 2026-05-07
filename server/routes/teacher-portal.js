@@ -13,47 +13,43 @@ function requireTeacher(req, res) {
   return true;
 }
 
-// GET /api/teacher-portal/profile
-router.get('/profile', (req, res) => {
+router.get('/profile', async (req, res) => {
   if (!requireTeacher(req, res)) return;
-  const teacher = db.prepare('SELECT * FROM teachers WHERE id = ?').get(req.user.teacher_id);
+  const teacher = await db.get('SELECT * FROM teachers WHERE id = ?', [req.user.teacher_id]);
   if (!teacher) return res.status(404).json({ error: 'Teacher not found' });
   res.json(teacher);
 });
 
-// GET /api/teacher-portal/students
-router.get('/students', (req, res) => {
+router.get('/students', async (req, res) => {
   if (!requireTeacher(req, res)) return;
-  const students = db.prepare(`
-    SELECT s.*, g.name as group_name,
-      GROUP_CONCAT(sub.name) as subjects
-    FROM students s
-    LEFT JOIN class_groups g ON s.group_id = g.id
-    LEFT JOIN student_subjects ss ON ss.student_id = s.id
-    LEFT JOIN subjects sub ON sub.id = ss.subject_id
-    WHERE s.teacher_id = ? AND s.active = 1
-    GROUP BY s.id
-    ORDER BY s.name
-  `).all(req.user.teacher_id);
+  const students = await db.all(
+    `SELECT s.*, g.name as group_name,
+       GROUP_CONCAT(sub.name) as subjects
+     FROM students s
+     LEFT JOIN class_groups g ON s.group_id = g.id
+     LEFT JOIN student_subjects ss ON ss.student_id = s.id
+     LEFT JOIN subjects sub ON sub.id = ss.subject_id
+     WHERE s.teacher_id = ? AND s.active = 1
+     GROUP BY s.id ORDER BY s.name`,
+    [req.user.teacher_id]
+  );
   res.json(students);
 });
 
-// GET /api/teacher-portal/groups
-router.get('/groups', (req, res) => {
+router.get('/groups', async (req, res) => {
   if (!requireTeacher(req, res)) return;
-  const groups = db.prepare(`
-    SELECT g.*, COUNT(s.id) as student_count
-    FROM class_groups g
-    LEFT JOIN students s ON s.group_id = g.id AND s.active = 1
-    WHERE g.teacher_id = ?
-    GROUP BY g.id
-    ORDER BY g.name
-  `).all(req.user.teacher_id);
+  const groups = await db.all(
+    `SELECT g.*, COUNT(s.id) as student_count
+     FROM class_groups g
+     LEFT JOIN students s ON s.group_id = g.id AND s.active = 1
+     WHERE g.teacher_id = ?
+     GROUP BY g.id ORDER BY g.name`,
+    [req.user.teacher_id]
+  );
   res.json(groups);
 });
 
-// GET /api/teacher-portal/sessions
-router.get('/sessions', (req, res) => {
+router.get('/sessions', async (req, res) => {
   if (!requireTeacher(req, res)) return;
   const { month, year } = req.query;
   const params = [req.user.teacher_id];
@@ -61,28 +57,28 @@ router.get('/sessions', (req, res) => {
   if (month) { where += ' AND s.month = ?'; params.push(month); }
   if (year) { where += ' AND s.year = ?'; params.push(year); }
 
-  const sessions = db.prepare(`
-    SELECT s.*, st.name as student_name, g.name as group_name
-    FROM sessions s
-    LEFT JOIN students st ON st.id = s.student_id
-    LEFT JOIN class_groups g ON g.id = s.group_id
-    WHERE ${where}
-    ORDER BY s.session_date DESC
-  `).all(...params);
+  const sessions = await db.all(
+    `SELECT s.*, st.name as student_name, g.name as group_name
+     FROM sessions s
+     LEFT JOIN students st ON st.id = s.student_id
+     LEFT JOIN class_groups g ON g.id = s.group_id
+     WHERE ${where} ORDER BY s.session_date DESC`,
+    params
+  );
 
-  const result = sessions.map(sess => {
-    const attendance = db.prepare(`
-      SELECT a.*, st.name as student_name
-      FROM attendance a JOIN students st ON st.id = a.student_id
-      WHERE a.session_id = ?
-    `).all(sess.id);
+  const result = await Promise.all(sessions.map(async sess => {
+    const attendance = await db.all(
+      `SELECT a.*, st.name as student_name
+       FROM attendance a JOIN students st ON st.id = a.student_id
+       WHERE a.session_id = ?`,
+      [sess.id]
+    );
     return { ...sess, attendance };
-  });
+  }));
   res.json(result);
 });
 
-// POST /api/teacher-portal/sessions
-router.post('/sessions', (req, res) => {
+router.post('/sessions', async (req, res) => {
   if (!requireTeacher(req, res)) return;
   const { student_id, group_id, session_date, duration_hours, class_type, notes = '' } = req.body;
   if (!session_date || !duration_hours || !class_type)
@@ -92,50 +88,61 @@ router.post('/sessions', (req, res) => {
   const month = date.getMonth() + 1;
   const year = date.getFullYear();
 
-  const result = db.prepare(
-    'INSERT INTO sessions (teacher_id, student_id, group_id, session_date, duration_hours, class_type, month, year, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(req.user.teacher_id, student_id || null, group_id || null, session_date, duration_hours, class_type, month, year, notes);
-
+  const result = await db.run(
+    'INSERT INTO sessions (teacher_id, student_id, group_id, session_date, duration_hours, class_type, month, year, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [req.user.teacher_id, student_id || null, group_id || null, session_date, duration_hours, class_type, month, year, notes]
+  );
   const sessionId = result.lastInsertRowid;
 
   if (class_type === '1on1' && student_id) {
-    db.prepare('INSERT INTO attendance (session_id, student_id, attended) VALUES (?, ?, 1)').run(sessionId, student_id);
+    await db.run('INSERT INTO attendance (session_id, student_id, attended) VALUES (?, ?, 1)', [sessionId, student_id]);
   } else if (class_type === 'group' && group_id) {
-    const groupStudents = db.prepare('SELECT id FROM students WHERE group_id = ? AND active = 1').all(group_id);
-    const ins = db.prepare('INSERT INTO attendance (session_id, student_id, attended) VALUES (?, ?, 1)');
-    for (const s of groupStudents) ins.run(sessionId, s.id);
+    const groupStudents = await db.all('SELECT id FROM students WHERE group_id = ? AND active = 1', [group_id]);
+    if (groupStudents.length > 0) {
+      await db.batch(groupStudents.map(s => ({
+        sql: 'INSERT INTO attendance (session_id, student_id, attended) VALUES (?, ?, 1)',
+        args: [sessionId, s.id]
+      })));
+    }
   }
 
-  const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId);
-  const attendance = db.prepare(`
-    SELECT a.*, st.name as student_name FROM attendance a
-    JOIN students st ON st.id = a.student_id WHERE a.session_id = ?
-  `).all(sessionId);
+  const session = await db.get('SELECT * FROM sessions WHERE id = ?', [sessionId]);
+  const attendance = await db.all(
+    `SELECT a.*, st.name as student_name FROM attendance a
+     JOIN students st ON st.id = a.student_id WHERE a.session_id = ?`,
+    [sessionId]
+  );
   res.json({ ...session, attendance });
 });
 
-// PUT /api/teacher-portal/sessions/:id/attendance
-router.put('/sessions/:id/attendance', (req, res) => {
+router.put('/sessions/:id/attendance', async (req, res) => {
   if (!requireTeacher(req, res)) return;
-  const session = db.prepare('SELECT * FROM sessions WHERE id = ? AND teacher_id = ?')
-    .get(req.params.id, req.user.teacher_id);
+  const session = await db.get(
+    'SELECT * FROM sessions WHERE id = ? AND teacher_id = ?',
+    [req.params.id, req.user.teacher_id]
+  );
   if (!session) return res.status(404).json({ error: 'Session not found' });
 
   const { attendance } = req.body;
   if (!Array.isArray(attendance)) return res.status(400).json({ error: 'attendance array required' });
 
-  const update = db.prepare('UPDATE attendance SET attended = ? WHERE session_id = ? AND student_id = ?');
-  for (const a of attendance) update.run(a.attended ? 1 : 0, session.id, a.student_id);
+  if (attendance.length > 0) {
+    await db.batch(attendance.map(a => ({
+      sql: 'UPDATE attendance SET attended = ? WHERE session_id = ? AND student_id = ?',
+      args: [a.attended ? 1 : 0, session.id, a.student_id]
+    })));
+  }
   res.json({ ok: true });
 });
 
-// DELETE /api/teacher-portal/sessions/:id
-router.delete('/sessions/:id', (req, res) => {
+router.delete('/sessions/:id', async (req, res) => {
   if (!requireTeacher(req, res)) return;
-  const session = db.prepare('SELECT * FROM sessions WHERE id = ? AND teacher_id = ?')
-    .get(req.params.id, req.user.teacher_id);
+  const session = await db.get(
+    'SELECT * FROM sessions WHERE id = ? AND teacher_id = ?',
+    [req.params.id, req.user.teacher_id]
+  );
   if (!session) return res.status(404).json({ error: 'Session not found' });
-  db.prepare('DELETE FROM sessions WHERE id = ?').run(session.id);
+  await db.run('DELETE FROM sessions WHERE id = ?', [session.id]);
   res.json({ ok: true });
 });
 

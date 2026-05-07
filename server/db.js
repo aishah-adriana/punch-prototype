@@ -1,94 +1,46 @@
-const Database = require('better-sqlite3');
+const { createClient } = require('@libsql/client');
 const bcrypt = require('bcrypt');
-const path = require('path');
 
-const db = new Database(path.join(__dirname, 'punch_tracker.db'));
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+const client = createClient({
+  url: process.env.TURSO_DATABASE_URL || 'file:punch_tracker.db',
+  authToken: process.env.TURSO_AUTH_TOKEN || undefined
+});
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT NOT NULL UNIQUE,
-    password_hash TEXT NOT NULL,
-    role TEXT NOT NULL DEFAULT 'teacher',
-    teacher_id INTEGER,
-    active INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT DEFAULT (datetime('now')),
-    FOREIGN KEY (teacher_id) REFERENCES teachers(id)
-  );
+function toObj(row) {
+  if (!row) return null;
+  const plain = { ...row };
+  for (const key of Object.keys(plain)) {
+    if (typeof plain[key] === 'bigint') plain[key] = Number(plain[key]);
+  }
+  return plain;
+}
 
-  CREATE TABLE IF NOT EXISTS tags (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE,
-    color TEXT NOT NULL DEFAULT '#6366f1',
-    category TEXT NOT NULL DEFAULT 'general',
-    created_at TEXT DEFAULT (datetime('now'))
-  );
+const db = {
+  async all(sql, args = []) {
+    const rs = await client.execute({ sql, args });
+    return rs.rows.map(toObj);
+  },
+  async get(sql, args = []) {
+    const rs = await client.execute({ sql, args });
+    return toObj(rs.rows[0] || null);
+  },
+  async run(sql, args = []) {
+    const rs = await client.execute({ sql, args });
+    return {
+      lastInsertRowid: rs.lastInsertRowid !== undefined ? Number(rs.lastInsertRowid) : null,
+      changes: rs.rowsAffected
+    };
+  },
+  async batch(statements) {
+    const rs = await client.batch(statements, 'write');
+    return rs.map(r => ({
+      lastInsertRowid: r.lastInsertRowid !== undefined ? Number(r.lastInsertRowid) : null,
+      changes: r.rowsAffected
+    }));
+  }
+};
 
-  CREATE TABLE IF NOT EXISTS teacher_tags (
-    teacher_id INTEGER NOT NULL,
-    tag_id INTEGER NOT NULL,
-    PRIMARY KEY (teacher_id, tag_id),
-    FOREIGN KEY (teacher_id) REFERENCES teachers(id) ON DELETE CASCADE,
-    FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
-  );
-
-  CREATE TABLE IF NOT EXISTS student_tags (
-    student_id INTEGER NOT NULL,
-    tag_id INTEGER NOT NULL,
-    PRIMARY KEY (student_id, tag_id),
-    FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE,
-    FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
-  );
-
-  CREATE TABLE IF NOT EXISTS session_tags (
-    session_id INTEGER NOT NULL,
-    tag_id INTEGER NOT NULL,
-    PRIMARY KEY (session_id, tag_id),
-    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
-    FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
-  );
-
-  CREATE TABLE IF NOT EXISTS payment_tags (
-    payment_id INTEGER NOT NULL,
-    tag_id INTEGER NOT NULL,
-    payment_type TEXT NOT NULL,
-    PRIMARY KEY (payment_id, tag_id, payment_type),
-    FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
-  );
-
-  CREATE TABLE IF NOT EXISTS recurring_rules (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    student_id INTEGER NOT NULL,
-    frequency TEXT NOT NULL DEFAULT 'monthly',
-    day_of_month INTEGER NOT NULL DEFAULT 1,
-    active INTEGER NOT NULL DEFAULT 1,
-    last_generated TEXT,
-    notes TEXT DEFAULT '',
-    created_at TEXT DEFAULT (datetime('now')),
-    FOREIGN KEY (student_id) REFERENCES students(id)
-  );
-
-  CREATE TABLE IF NOT EXISTS einvoices (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    student_id INTEGER NOT NULL,
-    payment_id INTEGER,
-    invoice_number TEXT NOT NULL UNIQUE,
-    invoice_date TEXT NOT NULL,
-    description TEXT DEFAULT '',
-    amount REAL NOT NULL,
-    tax_amount REAL NOT NULL DEFAULT 0,
-    total_amount REAL NOT NULL,
-    status TEXT NOT NULL DEFAULT 'draft',
-    myinvois_uuid TEXT,
-    myinvois_submission_uid TEXT,
-    submitted_at TEXT,
-    created_at TEXT DEFAULT (datetime('now')),
-    FOREIGN KEY (student_id) REFERENCES students(id),
-    FOREIGN KEY (payment_id) REFERENCES student_payments(id)
-  );
-
+const SCHEMA = `
   CREATE TABLE IF NOT EXISTS teachers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -203,14 +155,111 @@ db.exec(`
     UNIQUE(teacher_id, month, year),
     FOREIGN KEY (teacher_id) REFERENCES teachers(id)
   );
-`);
 
-// Seed default admin account if no users exist
-const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get();
-if (userCount.count === 0) {
-  const hash = bcrypt.hashSync('admin123', 10);
-  db.prepare("INSERT INTO users (username, password_hash, role) VALUES ('admin', ?, 'admin')").run(hash);
-  console.log('Default admin account created: username=admin, password=admin123');
-}
+  CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'teacher',
+    teacher_id INTEGER,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (teacher_id) REFERENCES teachers(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS tags (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    color TEXT NOT NULL DEFAULT '#6366f1',
+    category TEXT NOT NULL DEFAULT 'general',
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS teacher_tags (
+    teacher_id INTEGER NOT NULL,
+    tag_id INTEGER NOT NULL,
+    PRIMARY KEY (teacher_id, tag_id),
+    FOREIGN KEY (teacher_id) REFERENCES teachers(id) ON DELETE CASCADE,
+    FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS student_tags (
+    student_id INTEGER NOT NULL,
+    tag_id INTEGER NOT NULL,
+    PRIMARY KEY (student_id, tag_id),
+    FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE,
+    FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS session_tags (
+    session_id INTEGER NOT NULL,
+    tag_id INTEGER NOT NULL,
+    PRIMARY KEY (session_id, tag_id),
+    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+    FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS payment_tags (
+    payment_id INTEGER NOT NULL,
+    tag_id INTEGER NOT NULL,
+    payment_type TEXT NOT NULL,
+    PRIMARY KEY (payment_id, tag_id, payment_type),
+    FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS recurring_rules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id INTEGER NOT NULL,
+    frequency TEXT NOT NULL DEFAULT 'monthly',
+    day_of_month INTEGER NOT NULL DEFAULT 1,
+    active INTEGER NOT NULL DEFAULT 1,
+    last_generated TEXT,
+    notes TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (student_id) REFERENCES students(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS einvoices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id INTEGER NOT NULL,
+    payment_id INTEGER,
+    invoice_number TEXT NOT NULL UNIQUE,
+    invoice_date TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    amount REAL NOT NULL,
+    tax_amount REAL NOT NULL DEFAULT 0,
+    total_amount REAL NOT NULL,
+    status TEXT NOT NULL DEFAULT 'draft',
+    myinvois_uuid TEXT,
+    myinvois_submission_uid TEXT,
+    submitted_at TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (student_id) REFERENCES students(id),
+    FOREIGN KEY (payment_id) REFERENCES student_payments(id)
+  );
+`;
+
+let _initPromise = null;
+
+db.ensureInit = function () {
+  if (!_initPromise) {
+    _initPromise = (async () => {
+      await client.executeMultiple(SCHEMA);
+      const row = await db.get('SELECT COUNT(*) as count FROM users');
+      if (!row || row.count === 0) {
+        const hash = await bcrypt.hash('admin123', 10);
+        await db.run(
+          "INSERT INTO users (username, password_hash, role) VALUES ('admin', ?, 'admin')",
+          [hash]
+        );
+        console.log('Default admin created: username=admin password=admin123');
+      }
+    })().catch(e => {
+      _initPromise = null; // allow retry on next request if init failed
+      throw e;
+    });
+  }
+  return _initPromise;
+};
 
 module.exports = db;
