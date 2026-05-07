@@ -4,7 +4,7 @@
   "scripts": {
     "dev": "concurrently \"npm run dev --prefix server\" \"npm run dev --prefix client\"",
     "start": "concurrently \"npm start --prefix server\" \"npm run preview --prefix client\"",
-    "vercel-build": "npm install --prefix client && npm run build --prefix client"
+    "vercel-build": "rm -rf server/node_modules && npm install --prefix client && npm run build --prefix client"
   },
   "dependencies": {
     "@libsql/client": "^0.14.0",
