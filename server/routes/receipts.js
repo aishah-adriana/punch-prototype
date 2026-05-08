@@ -12,18 +12,43 @@ async function nextReceiptNumber() {
   return `RCP-${String(num).padStart(4, '0')}`;
 }
 
-// Get receipt by payment_id (used after Mark Paid to fetch the auto-created receipt)
+// Get receipt by payment_id — auto-creates one if payment is paid but receipt doesn't exist yet
 router.get('/by-payment/:payment_id', async (req, res) => {
-  const receipt = await db.get(
+  const paymentId = Number(req.params.payment_id);
+
+  let receipt = await db.get(
     `SELECT r.*, s.name as student_name, s.parent_name,
             t.name as teacher_name
      FROM receipts r
      JOIN students s ON s.id = r.student_id
      JOIN teachers t ON t.id = (SELECT teacher_id FROM students WHERE id = r.student_id)
      WHERE r.payment_id = ?`,
-    [Number(req.params.payment_id)]
+    [paymentId]
   );
-  if (!receipt) return res.status(404).json({ error: 'Receipt not found' });
+
+  // Auto-create receipt for payments marked paid before the receipt feature was deployed
+  if (!receipt) {
+    const payment = await db.get('SELECT * FROM student_payments WHERE id = ? AND paid = 1', [paymentId]);
+    if (!payment) return res.status(404).json({ error: 'No receipt found for this payment.' });
+
+    const receipt_number = await nextReceiptNumber();
+    const receipt_date = payment.paid_date || new Date().toISOString().split('T')[0];
+    const result = await db.run(
+      'INSERT INTO receipts (receipt_number, student_id, payment_id, receipt_date, amount, description) VALUES (?, ?, ?, ?, ?, ?)',
+      [receipt_number, payment.student_id, paymentId, receipt_date, payment.total_due, '']
+    );
+
+    receipt = await db.get(
+      `SELECT r.*, s.name as student_name, s.parent_name,
+              t.name as teacher_name
+       FROM receipts r
+       JOIN students s ON s.id = r.student_id
+       JOIN teachers t ON t.id = (SELECT teacher_id FROM students WHERE id = r.student_id)
+       WHERE r.id = ?`,
+      [result.lastInsertRowid]
+    );
+  }
+
   res.json(receipt);
 });
 
