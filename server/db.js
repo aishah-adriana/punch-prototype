@@ -223,6 +223,19 @@ const SCHEMA = `
     FOREIGN KEY (student_id) REFERENCES students(id)
   );
 
+  CREATE TABLE IF NOT EXISTS receipts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    receipt_number TEXT NOT NULL UNIQUE,
+    student_id INTEGER NOT NULL,
+    payment_id INTEGER NOT NULL UNIQUE,
+    receipt_date TEXT NOT NULL,
+    amount REAL NOT NULL,
+    description TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (student_id) REFERENCES students(id),
+    FOREIGN KEY (payment_id) REFERENCES student_payments(id)
+  );
+
   CREATE TABLE IF NOT EXISTS einvoices (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     student_id INTEGER NOT NULL,

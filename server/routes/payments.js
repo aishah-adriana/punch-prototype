@@ -1,6 +1,7 @@
 const express = require('express');
 const db = require('../db');
 const { getHourlyRate, calculateCollaborationFee } = require('../utils/calculations');
+const { nextReceiptNumber } = require('./receipts');
 const router = express.Router();
 
 router.post('/calculate', async (req, res) => {
@@ -124,12 +125,34 @@ router.get('/student-monthly', async (req, res) => {
 
 router.put('/students/:id/paid', async (req, res) => {
   const { paid, notes } = req.body;
+  const paymentId = Number(req.params.id);
   const paid_date = paid ? new Date().toISOString().split('T')[0] : null;
+
   await db.run(
     'UPDATE student_payments SET paid = ?, paid_date = ?, notes = COALESCE(?, notes) WHERE id = ?',
-    [paid ? 1 : 0, paid_date, notes ?? null, Number(req.params.id)]
+    [paid ? 1 : 0, paid_date, notes ?? null, paymentId]
   );
-  res.json({ success: true });
+
+  // Auto-create receipt when marking as paid
+  let receipt_id = null;
+  if (paid) {
+    const existing = await db.get('SELECT id FROM receipts WHERE payment_id = ?', [paymentId]);
+    if (existing) {
+      receipt_id = existing.id;
+    } else {
+      const payment = await db.get('SELECT * FROM student_payments WHERE id = ?', [paymentId]);
+      if (payment) {
+        const receipt_number = await nextReceiptNumber();
+        const result = await db.run(
+          'INSERT INTO receipts (receipt_number, student_id, payment_id, receipt_date, amount, description) VALUES (?, ?, ?, ?, ?, ?)',
+          [receipt_number, payment.student_id, paymentId, paid_date, payment.total_due, '']
+        );
+        receipt_id = result.lastInsertRowid;
+      }
+    }
+  }
+
+  res.json({ success: true, receipt_id });
 });
 
 router.get('/teachers', async (req, res) => {

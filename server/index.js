@@ -32,6 +32,7 @@ app.use('/api/payments', auth, adminOnly, require('./routes/payments'));
 app.use('/api/reports', require('./routes/reports'));
 app.use('/api/tags', require('./routes/tags'));
 app.use('/api/invoices', require('./routes/invoices'));
+app.use('/api/receipts', require('./routes/receipts').router);
 app.use('/api/users', require('./routes/users'));
 
 app.use((err, req, res, next) => {

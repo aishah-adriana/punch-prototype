@@ -99,7 +99,7 @@ export const api = {
     studentList: (month: number, year: number) =>
       req<any[]>('GET', `/payments/students?month=${month}&year=${year}`),
     markStudentPaid: (id: number, paid: boolean, notes?: string) =>
-      req<any>('PUT', `/payments/students/${id}/paid`, { paid, notes }),
+      req<{ success: boolean; receipt_id: number | null }>('PUT', `/payments/students/${id}/paid`, { paid, notes }),
     teacherList: (month: number, year: number) =>
       req<any[]>('GET', `/payments/teachers?month=${month}&year=${year}`),
     markTeacherPaid: (id: number, paid: boolean, notes?: string) =>
@@ -168,6 +168,10 @@ export const api = {
       delete: (id: number) => req<any>('DELETE', `/invoices/recurring/${id}`),
       trigger: (id: number) => req<any>('POST', `/invoices/recurring/${id}/trigger`)
     }
+  },
+  receipts: {
+    share: (id: number) => req<any>('GET', `/receipts/${id}/share`),
+    byPayment: (paymentId: number) => req<any>('GET', `/receipts/by-payment/${paymentId}`)
   },
   teacherPortal: {
     profile: () => req<any>('GET', '/teacher-portal/profile'),
