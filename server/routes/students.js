@@ -66,28 +66,35 @@ router.get('/:id', async (req, res) => {
 });
 
 router.post('/', async (req, res) => {
-  const { name, age, syllabus, class_type, teacher_id, group_id } = req.body;
+  const { name, age, syllabus, class_type, teacher_id, group_id, parent_name = '' } = req.body;
   if (!name || !age || !syllabus || !class_type || !teacher_id)
     return res.status(400).json({ error: 'name, age, syllabus, class_type, teacher_id required' });
   if (class_type === 'group' && !group_id)
     return res.status(400).json({ error: 'group_id required for group class' });
 
   const result = await db.run(
-    'INSERT INTO students (name, age, syllabus, class_type, teacher_id, group_id) VALUES (?, ?, ?, ?, ?, ?)',
-    [name, age, syllabus, class_type, teacher_id, group_id || null]
+    'INSERT INTO students (name, parent_name, age, syllabus, class_type, teacher_id, group_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    [name, parent_name, age, syllabus, class_type, teacher_id, group_id || null]
   );
-  res.json({ id: result.lastInsertRowid, name, age, syllabus, class_type, teacher_id, group_id, subjects: [] });
+
+  // Auto-create recurring invoice rule for new student
+  await db.run(
+    'INSERT OR IGNORE INTO recurring_rules (student_id, frequency, day_of_month, notes) VALUES (?, ?, ?, ?)',
+    [result.lastInsertRowid, 'monthly', 1, '']
+  );
+
+  res.json({ id: result.lastInsertRowid, name, parent_name, age, syllabus, class_type, teacher_id, group_id, subjects: [] });
 });
 
 router.put('/:id', async (req, res) => {
-  const { name, age, syllabus, class_type, teacher_id, group_id, active } = req.body;
+  const { name, age, syllabus, class_type, teacher_id, group_id, active, parent_name = '' } = req.body;
   if (!name || !age || !syllabus || !class_type || !teacher_id)
     return res.status(400).json({ error: 'name, age, syllabus, class_type, teacher_id required' });
   await db.run(
-    'UPDATE students SET name=?, age=?, syllabus=?, class_type=?, teacher_id=?, group_id=?, active=? WHERE id=?',
-    [name, age, syllabus, class_type, teacher_id, group_id || null, active !== undefined ? active : 1, req.params.id]
+    'UPDATE students SET name=?, parent_name=?, age=?, syllabus=?, class_type=?, teacher_id=?, group_id=?, active=? WHERE id=?',
+    [name, parent_name, age, syllabus, class_type, teacher_id, group_id || null, active !== undefined ? active : 1, req.params.id]
   );
-  res.json({ id: Number(req.params.id), name, age, syllabus, class_type, teacher_id, group_id, active });
+  res.json({ id: Number(req.params.id), name, parent_name, age, syllabus, class_type, teacher_id, group_id, active });
 });
 
 router.put('/:id/subjects', async (req, res) => {
@@ -123,8 +130,8 @@ router.post('/bulk', async (req, res) => {
     if (existingNames.has(s.name.trim().toLowerCase())) { results.duplicates++; continue; }
     try {
       const r = await db.run(
-        'INSERT INTO students (name, age, syllabus, class_type, teacher_id, group_id) VALUES (?, ?, ?, ?, ?, ?)',
-        [s.name.trim(), s.age, s.syllabus, s.class_type, s.teacher_id, s.group_id || null]
+        'INSERT INTO students (name, parent_name, age, syllabus, class_type, teacher_id, group_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [s.name.trim(), s.parent_name || '', s.age, s.syllabus, s.class_type, s.teacher_id, s.group_id || null]
       );
       if (Array.isArray(s.subject_ids) && s.subject_ids.length > 0) {
         await db.batch(s.subject_ids.map(sid => ({
@@ -132,6 +139,11 @@ router.post('/bulk', async (req, res) => {
           args: [r.lastInsertRowid, sid]
         })));
       }
+      // Auto-create recurring invoice rule
+      await db.run(
+        'INSERT OR IGNORE INTO recurring_rules (student_id, frequency, day_of_month, notes) VALUES (?, ?, ?, ?)',
+        [r.lastInsertRowid, 'monthly', 1, '']
+      );
       results.imported++;
     } catch (e) { results.errors.push(`${s.name}: ${e.message}`); }
   }

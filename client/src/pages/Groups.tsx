@@ -1,15 +1,22 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import { ClassGroup, Teacher } from '../types';
+import { ClassGroup, Teacher, Subject } from '../types';
 import Modal from '../components/Modal';
 
 const SYLLABI = ['KSSR', 'KSSM', 'Cambridge'];
 const DURATIONS = [1, 1.5, 2, 2.5, 3];
 
-function GroupForm({ initial, teachers, onSave, onClose }: { initial?: ClassGroup; teachers: Teacher[]; onSave: (g: ClassGroup) => void; onClose: () => void }) {
+function GroupForm({ initial, teachers, subjects, onSave, onClose }: {
+  initial?: ClassGroup; teachers: Teacher[]; subjects: Subject[];
+  onSave: (g: ClassGroup) => void; onClose: () => void;
+}) {
   const [form, setForm] = useState({
-    name: initial?.name || '', teacher_id: initial?.teacher_id?.toString() || '',
-    syllabus: initial?.syllabus || 'KSSR', duration_hours: initial?.duration_hours?.toString() || '1.5'
+    name: initial?.name || '',
+    teacher_id: initial?.teacher_id?.toString() || '',
+    syllabus: initial?.syllabus || 'KSSR',
+    subject_id: initial?.subject_id?.toString() || '',
+    standard: initial?.standard || '',
+    duration_hours: initial?.duration_hours?.toString() || '1.5'
   });
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -19,7 +26,12 @@ function GroupForm({ initial, teachers, onSave, onClose }: { initial?: ClassGrou
     if (!form.name.trim() || !form.teacher_id) { setError('Name and teacher are required'); return; }
     setSaving(true);
     try {
-      const payload = { ...form, teacher_id: Number(form.teacher_id), duration_hours: Number(form.duration_hours) };
+      const payload = {
+        ...form,
+        teacher_id: Number(form.teacher_id),
+        duration_hours: Number(form.duration_hours),
+        subject_id: form.subject_id ? Number(form.subject_id) : null,
+      };
       const result = initial ? await api.groups.update(initial.id, payload) : await api.groups.create(payload);
       onSave(result);
     } catch (e: any) { setError(e.message); }
@@ -44,6 +56,17 @@ function GroupForm({ initial, teachers, onSave, onClose }: { initial?: ClassGrou
           </select>
         </div>
       </div>
+      <div className="form-row">
+        <div className="form-group"><label>Subject</label>
+          <select className="form-control" value={form.subject_id} onChange={e => set('subject_id', e.target.value)}>
+            <option value="">— None —</option>
+            {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        </div>
+        <div className="form-group"><label>Standard / Form</label>
+          <input className="form-control" value={form.standard} onChange={e => set('standard', e.target.value)} placeholder="e.g. Standard 4, Form 2" />
+        </div>
+      </div>
       <div className="form-group"><label>Class Duration (hours)</label>
         <select className="form-control" value={form.duration_hours} onChange={e => set('duration_hours', e.target.value)}>
           {DURATIONS.map(d => <option key={d} value={d}>{d}h</option>)}
@@ -56,13 +79,14 @@ function GroupForm({ initial, teachers, onSave, onClose }: { initial?: ClassGrou
 export default function Groups() {
   const [groups, setGroups] = useState<ClassGroup[]>([]);
   const [teachers, setTeachers] = useState<Teacher[]>([]);
+  const [subjects, setSubjects] = useState<Subject[]>([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<'add' | ClassGroup | null>(null);
   const [error, setError] = useState('');
 
   const load = async () => {
-    const [g, t] = await Promise.all([api.groups.list(), api.teachers.list()]);
-    setGroups(g); setTeachers(t); setLoading(false);
+    const [g, t, s] = await Promise.all([api.groups.list(), api.teachers.list(), api.subjects.list()]);
+    setGroups(g); setTeachers(t); setSubjects(s); setLoading(false);
   };
   useEffect(() => { load(); }, []);
 
@@ -94,13 +118,15 @@ export default function Groups() {
               <div className="empty"><div className="icon">👥</div><p>No group classes yet. Create one to get started.</p></div>
             ) : (
               <table>
-                <thead><tr><th>Group Name</th><th>Teacher</th><th>Syllabus</th><th>Duration</th><th>Students</th><th>Actions</th></tr></thead>
+                <thead><tr><th>Group Name</th><th>Teacher</th><th>Syllabus</th><th>Subject</th><th>Standard</th><th>Duration</th><th>Students</th><th>Actions</th></tr></thead>
                 <tbody>
                   {groups.map(g => (
                     <tr key={g.id}>
                       <td><strong>{g.name}</strong></td>
                       <td>{g.teacher_name}</td>
                       <td><span className={`badge ${syllabusBadge(g.syllabus)}`}>{g.syllabus}</span></td>
+                      <td>{g.subject_name ? <span className="badge badge-blue">{g.subject_name}</span> : <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
+                      <td>{g.standard || <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
                       <td>{g.duration_hours}h / class</td>
                       <td><span className="badge badge-green">{g.student_count ?? 0} students</span></td>
                       <td><div className="actions">
@@ -115,7 +141,13 @@ export default function Groups() {
           </div>
         </div>
       )}
-      {modal && <GroupForm initial={modal === 'add' ? undefined : modal as ClassGroup} teachers={teachers} onSave={handleSave} onClose={() => setModal(null)} />}
+      {modal && <GroupForm
+        initial={modal === 'add' ? undefined : modal as ClassGroup}
+        teachers={teachers}
+        subjects={subjects}
+        onSave={handleSave}
+        onClose={() => setModal(null)}
+      />}
     </div>
   );
 }

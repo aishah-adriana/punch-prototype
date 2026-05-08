@@ -21,6 +21,9 @@ export interface ClassGroup {
   teacher_id: number;
   teacher_name?: string;
   syllabus: string;
+  subject_id?: number | null;
+  subject_name?: string;
+  standard?: string;
   duration_hours: number;
   student_count?: number;
   students?: Student[];
@@ -29,6 +32,7 @@ export interface ClassGroup {
 export interface Student {
   id: number;
   name: string;
+  parent_name?: string;
   age: number;
   syllabus: 'KSSR' | 'KSSM' | 'Cambridge';
   class_type: '1on1' | 'group';

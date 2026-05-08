@@ -173,7 +173,7 @@ router.post('/:id/submit', async (req, res) => {
 
 router.get('/:id/share', async (req, res) => {
   const inv = await db.get(
-    `SELECT e.*, s.name as student_name, s.age, s.syllabus,
+    `SELECT e.*, s.name as student_name, s.parent_name, s.age, s.syllabus,
        t.name as teacher_name, t.email as teacher_email, t.phone as teacher_phone
      FROM einvoices e
      JOIN students s ON s.id = e.student_id
@@ -183,7 +183,8 @@ router.get('/:id/share', async (req, res) => {
   );
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
 
-  const message = `Hi ${inv.student_name}, your invoice ${inv.invoice_number} dated ${inv.invoice_date} for RM${inv.total_amount.toFixed(2)} is ready. Please contact us for payment. Thank you!`;
+  const recipient = inv.parent_name || inv.student_name;
+  const message = `Hi ${recipient}, your invoice ${inv.invoice_number} dated ${inv.invoice_date} for RM${inv.total_amount.toFixed(2)} is ready. Please contact us for payment. Thank you!`;
   const waLink = `https://wa.me/?text=${encodeURIComponent(message)}`;
   const mailtoLink = `mailto:?subject=${encodeURIComponent(`Invoice ${inv.invoice_number}`)}&body=${encodeURIComponent(message)}`;
 
