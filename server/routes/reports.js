@@ -44,24 +44,25 @@ router.get('/revenue/by-teacher', async (req, res) => {
   if (!month || !year) return res.status(400).json({ error: 'month and year required' });
   const m = parseInt(month), y = parseInt(year);
 
+  // Use correlated subqueries to avoid fan-out when joining sessions + payments together
   const rows = await db.all(
     `SELECT t.id, t.name as teacher_name,
        COUNT(DISTINCT s.id) as student_count,
-       COUNT(DISTINCT sess.id) as session_count,
-       SUM(sess.duration_hours) as total_hours,
-       COALESCE(SUM(sp.total_due), 0) as total_fees_due,
-       COALESCE(SUM(CASE WHEN sp.paid=1 THEN sp.total_due ELSE 0 END), 0) as fees_collected,
+       (SELECT COUNT(*) FROM sessions WHERE teacher_id = t.id AND month = ? AND year = ?) as session_count,
+       COALESCE((SELECT SUM(duration_hours) FROM sessions WHERE teacher_id = t.id AND month = ? AND year = ?), 0) as total_hours,
+       COALESCE((SELECT SUM(sp.total_due) FROM student_payments sp
+                 JOIN students st ON st.id = sp.student_id
+                 WHERE st.teacher_id = t.id AND sp.month = ? AND sp.year = ?), 0) as total_fees_due,
+       COALESCE((SELECT SUM(sp.total_due) FROM student_payments sp
+                 JOIN students st ON st.id = sp.student_id
+                 WHERE st.teacher_id = t.id AND sp.month = ? AND sp.year = ? AND sp.paid = 1), 0) as fees_collected,
        COALESCE(tp.net_pay, 0) as teacher_net_pay,
        tp.paid as teacher_paid
      FROM teachers t
      LEFT JOIN students s ON s.teacher_id = t.id AND s.active = 1
-     LEFT JOIN sessions sess ON sess.teacher_id = t.id AND sess.month = ? AND sess.year = ?
-     LEFT JOIN student_payments sp ON sp.student_id IN (
-       SELECT id FROM students WHERE teacher_id = t.id
-     ) AND sp.month = ? AND sp.year = ?
      LEFT JOIN teacher_payments tp ON tp.teacher_id = t.id AND tp.month = ? AND tp.year = ?
      GROUP BY t.id ORDER BY total_fees_due DESC`,
-    [m, y, m, y, m, y]
+    [m, y, m, y, m, y, m, y, m, y]
   );
   res.json(rows);
 });
