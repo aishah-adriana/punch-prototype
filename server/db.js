@@ -54,14 +54,18 @@ const SCHEMA = `
     name TEXT NOT NULL,
     teacher_id INTEGER NOT NULL,
     syllabus TEXT NOT NULL,
+    subject_id INTEGER,
+    standard TEXT DEFAULT '',
     duration_hours REAL NOT NULL DEFAULT 1.5,
     created_at TEXT DEFAULT (datetime('now')),
-    FOREIGN KEY (teacher_id) REFERENCES teachers(id)
+    FOREIGN KEY (teacher_id) REFERENCES teachers(id),
+    FOREIGN KEY (subject_id) REFERENCES subjects(id)
   );
 
   CREATE TABLE IF NOT EXISTS students (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
+    parent_name TEXT DEFAULT '',
     age INTEGER NOT NULL,
     syllabus TEXT NOT NULL,
     class_type TEXT NOT NULL,
@@ -241,10 +245,19 @@ const SCHEMA = `
 
 let _initPromise = null;
 
+const MIGRATIONS = [
+  `ALTER TABLE students ADD COLUMN parent_name TEXT DEFAULT ''`,
+  `ALTER TABLE class_groups ADD COLUMN subject_id INTEGER`,
+  `ALTER TABLE class_groups ADD COLUMN standard TEXT DEFAULT ''`,
+];
+
 db.ensureInit = function () {
   if (!_initPromise) {
     _initPromise = (async () => {
       await client.executeMultiple(SCHEMA);
+      for (const sql of MIGRATIONS) {
+        try { await client.execute(sql); } catch (_) { /* column already exists */ }
+      }
       const row = await db.get('SELECT COUNT(*) as count FROM users');
       if (!row || row.count === 0) {
         const hash = await bcrypt.hash('admin123', 10);

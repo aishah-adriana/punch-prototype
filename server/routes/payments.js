@@ -127,7 +127,7 @@ router.put('/students/:id/paid', async (req, res) => {
   const paid_date = paid ? new Date().toISOString().split('T')[0] : null;
   await db.run(
     'UPDATE student_payments SET paid = ?, paid_date = ?, notes = COALESCE(?, notes) WHERE id = ?',
-    [paid ? 1 : 0, paid_date, notes, req.params.id]
+    [paid ? 1 : 0, paid_date, notes ?? null, Number(req.params.id)]
   );
   res.json({ success: true });
 });
@@ -151,7 +151,7 @@ router.put('/teachers/:id/paid', async (req, res) => {
   const paid_date = paid ? new Date().toISOString().split('T')[0] : null;
   await db.run(
     'UPDATE teacher_payments SET paid = ?, paid_date = ?, notes = COALESCE(?, notes) WHERE id = ?',
-    [paid ? 1 : 0, paid_date, notes, req.params.id]
+    [paid ? 1 : 0, paid_date, notes ?? null, Number(req.params.id)]
   );
   res.json({ success: true });
 });

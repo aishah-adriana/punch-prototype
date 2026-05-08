@@ -32,7 +32,8 @@ function StudentForm({ initial, teachers, allTags, onSave, onClose }: {
   initial?: Student; teachers: Teacher[]; allTags: any[]; onSave: (s: Student) => void; onClose: () => void;
 }) {
   const [form, setForm] = useState({
-    name: initial?.name || '', age: initial?.age?.toString() || '',
+    name: initial?.name || '', parent_name: initial?.parent_name || '',
+    age: initial?.age?.toString() || '',
     syllabus: initial?.syllabus || 'KSSR', class_type: initial?.class_type || '1on1',
     teacher_id: initial?.teacher_id?.toString() || '', group_id: initial?.group_id?.toString() || '',
     active: initial?.active !== undefined ? initial.active : 1
@@ -61,7 +62,7 @@ function StudentForm({ initial, teachers, allTags, onSave, onClose }: {
     if (age < 7 || age > 17) { setError('Age must be between 7 and 17'); return; }
     setSaving(true);
     try {
-      const payload = { ...form, age, teacher_id: Number(form.teacher_id), group_id: form.group_id ? Number(form.group_id) : null };
+      const payload = { ...form, age, teacher_id: Number(form.teacher_id), group_id: form.group_id ? Number(form.group_id) : null, parent_name: form.parent_name };
       const result = initial ? await api.students.update(initial.id, payload) : await api.students.create(payload);
       await api.students.setSubjects(result.id, selectedSubjects);
       await api.tags.setForStudent(result.id, selectedTags);
@@ -75,6 +76,7 @@ function StudentForm({ initial, teachers, allTags, onSave, onClose }: {
       footer={<><button className="btn btn-outline" onClick={onClose}>Cancel</button><button className="btn btn-primary" onClick={submit} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button></>}>
       {error && <div className="alert alert-danger">{error}</div>}
       <div className="form-group"><label>Full Name *</label><input className="form-control" value={form.name} onChange={e => set('name', e.target.value)} placeholder="Student name" /></div>
+      <div className="form-group"><label>Parent / Guardian Name</label><input className="form-control" value={form.parent_name} onChange={e => set('parent_name', e.target.value)} placeholder="Name of registered parent or guardian" /></div>
       <div className="form-row">
         <div className="form-group"><label>Age *</label><input className="form-control" type="number" min={7} max={17} value={form.age} onChange={e => set('age', e.target.value)} /></div>
         <div className="form-group"><label>Syllabus *</label>
@@ -132,6 +134,7 @@ interface ImportRow {
   rowNum: number;
   sheet: 'group' | '1on1';
   name: string;
+  parent_name: string;
   age: string;
   syllabus: string;
   teacher_name: string;
@@ -140,7 +143,7 @@ interface ImportRow {
   teacher_id?: number;
   group_id?: number;
   subject_ids: number[];
-  subject_warnings: string[];   // subject names from Excel that couldn't be matched
+  subject_warnings: string[];
   status: 'valid' | 'duplicate' | 'error';
   errors: string[];
 }
@@ -165,42 +168,42 @@ function ImportModal({ onDone, onClose }: { onDone: () => void; onClose: () => v
       : 'Mathematics, English, Science';
 
     // ── Sheet 1: Group Students ──────────────────────────────────────────
-    const grpHeader = ['Group Class', 'Student Name', 'Age', 'Subjects'];
-    const grpNote   = [`Must match a group name in the system`, '(required)', '7–17', `Optional — comma-separated. Available: ${subjectHint}`];
+    const grpHeader = ['Group Class', 'Student Name', 'Parent Name', 'Age', 'Subjects'];
+    const grpNote   = [`Must match a group name in the system`, '(required)', 'Parent/guardian name', '7–17', `Optional — comma-separated. Available: ${subjectHint}`];
     const grpRows: any[][] = [grpHeader, grpNote];
 
     if (lookup.groups.length > 0) {
       for (const g of lookup.groups) {
-        grpRows.push([g.name, '', '', '']);
-        grpRows.push([g.name, '', '', '']);
+        grpRows.push([g.name, '', '', '', '']);
+        grpRows.push([g.name, '', '', '', '']);
       }
     } else {
-      grpRows.push(['KSSR Standard 3', 'Ali bin Ahmad', 10, 'Mathematics, English']);
-      grpRows.push(['KSSR Standard 3', 'Siti Aminah', 9, 'Mathematics']);
-      grpRows.push(['Cambridge Year 6', 'John Tan', 12, 'Science, English']);
+      grpRows.push(['KSSR Standard 3', 'Ali bin Ahmad', 'Haji Ahmad', 10, 'Mathematics, English']);
+      grpRows.push(['KSSR Standard 3', 'Siti Aminah', 'Puan Nora', 9, 'Mathematics']);
+      grpRows.push(['Cambridge Year 6', 'John Tan', 'Mr. Tan', 12, 'Science, English']);
     }
 
     const ws1 = XLSX.utils.aoa_to_sheet(grpRows);
-    ws1['!cols'] = [{ wch: 26 }, { wch: 26 }, { wch: 6 }, { wch: 50 }];
+    ws1['!cols'] = [{ wch: 26 }, { wch: 26 }, { wch: 22 }, { wch: 6 }, { wch: 50 }];
     XLSX.utils.book_append_sheet(wb, ws1, 'Group Students');
 
     // ── Sheet 2: 1-on-1 Students ─────────────────────────────────────────
-    const priHeader = ['Teacher', 'Student Name', 'Age', 'Syllabus', 'Subjects'];
-    const priNote   = ['Must match a teacher name', '(required)', '7–17', 'KSSR / KSSM / Cambridge', `Optional — comma-separated. Available: ${subjectHint}`];
+    const priHeader = ['Teacher', 'Student Name', 'Parent Name', 'Age', 'Syllabus', 'Subjects'];
+    const priNote   = ['Must match a teacher name', '(required)', 'Parent/guardian name', '7–17', 'KSSR / KSSM / Cambridge', `Optional — comma-separated. Available: ${subjectHint}`];
     const priRows: any[][] = [priHeader, priNote];
 
     if (lookup.teachers.length > 0) {
       for (const t of lookup.teachers) {
-        priRows.push([t.name, '', '', 'KSSR', '']);
-        priRows.push([t.name, '', '', 'KSSR', '']);
+        priRows.push([t.name, '', '', '', 'KSSR', '']);
+        priRows.push([t.name, '', '', '', 'KSSR', '']);
       }
     } else {
-      priRows.push(['Ms. Sarah', 'Ahmad Faris', 11, 'KSSR', 'Mathematics, English']);
-      priRows.push(['Mr. Kumar', 'Emily Chen', 14, 'Cambridge', 'Mathematics']);
+      priRows.push(['Ms. Sarah', 'Ahmad Faris', 'Encik Faris Sr.', 11, 'KSSR', 'Mathematics, English']);
+      priRows.push(['Mr. Kumar', 'Emily Chen', 'Mrs. Chen', 14, 'Cambridge', 'Mathematics']);
     }
 
     const ws2 = XLSX.utils.aoa_to_sheet(priRows);
-    ws2['!cols'] = [{ wch: 22 }, { wch: 26 }, { wch: 6 }, { wch: 14 }, { wch: 50 }];
+    ws2['!cols'] = [{ wch: 22 }, { wch: 26 }, { wch: 22 }, { wch: 6 }, { wch: 14 }, { wch: 50 }];
     XLSX.utils.book_append_sheet(wb, ws2, '1-on-1 Students');
 
     XLSX.writeFile(wb, 'students_import_template.xlsx');
@@ -257,6 +260,7 @@ function ImportModal({ onDone, onClose }: { onDone: () => void; onClose: () => v
           const name = get(row, 'Student Name', 'Name');
           if (!name) return; // skip blank / instruction rows
 
+          const parent_name = get(row, 'Parent Name', 'Parent');
           const age = get(row, 'Age');
           const subject_names_raw = get(row, 'Subjects', 'Subject');
           const { ids: subject_ids, warnings: subject_warnings } = resolveSubjects(subject_names_raw);
@@ -281,7 +285,7 @@ function ImportModal({ onDone, onClose }: { onDone: () => void; onClose: () => v
 
             const isDuplicate = !!name && lookup.existing.includes(name.toLowerCase());
             allRows.push({
-              rowNum: i + 2, sheet: 'group', name, age, syllabus,
+              rowNum: i + 2, sheet: 'group', name, parent_name, age, syllabus,
               teacher_name: '', group_name: get(row, 'Group Class', 'Group'),
               subject_names_raw, teacher_id, group_id, subject_ids, subject_warnings,
               status: errors.length > 0 ? 'error' : isDuplicate ? 'duplicate' : 'valid', errors
@@ -302,7 +306,7 @@ function ImportModal({ onDone, onClose }: { onDone: () => void; onClose: () => v
 
             const isDuplicate = !!name && lookup.existing.includes(name.toLowerCase());
             allRows.push({
-              rowNum: i + 2, sheet: '1on1', name, age, syllabus,
+              rowNum: i + 2, sheet: '1on1', name, parent_name, age, syllabus,
               teacher_name: get(row, 'Teacher', 'Teacher Name'), group_name: '',
               subject_names_raw, teacher_id, group_id, subject_ids, subject_warnings,
               status: errors.length > 0 ? 'error' : isDuplicate ? 'duplicate' : 'valid', errors
@@ -326,7 +330,7 @@ function ImportModal({ onDone, onClose }: { onDone: () => void; onClose: () => v
     setImporting(true);
     try {
       const res = await api.students.bulkImport(validRows.map(r => ({
-        name: r.name, age: Number(r.age), syllabus: r.syllabus,
+        name: r.name, parent_name: r.parent_name, age: Number(r.age), syllabus: r.syllabus,
         class_type: r.sheet, teacher_id: r.teacher_id, group_id: r.group_id || null,
         subject_ids: r.subject_ids
       })));
@@ -354,7 +358,7 @@ function ImportModal({ onDone, onClose }: { onDone: () => void; onClose: () => v
           <table>
             <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
               <tr>
-                <th>Row</th><th>Status</th><th>Name</th><th>Age</th>
+                <th>Row</th><th>Status</th><th>Name</th><th>Parent</th><th>Age</th>
                 {isGroup ? <th>Group</th> : <><th>Teacher</th><th>Syllabus</th></>}
                 <th>Subjects</th><th>Issue</th>
               </tr>
@@ -367,6 +371,7 @@ function ImportModal({ onDone, onClose }: { onDone: () => void; onClose: () => v
                   <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{r.rowNum}</td>
                   <td>{statusBadge(r.status)}</td>
                   <td><strong>{r.name}</strong></td>
+                  <td style={{ fontSize: 12 }}>{r.parent_name || <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
                   <td>{r.age}</td>
                   {isGroup
                     ? <td>{r.group_name}</td>
