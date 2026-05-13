@@ -31,9 +31,9 @@ export default function Login() {
       <div className="login-left">
         <div className="login-brand-mark">
           <svg width="34" height="34" viewBox="0 0 24 24" fill="white">
-            <circle cx="9" cy="9" r="2.2"/><circle cx="15" cy="9" r="2.2"/>
-            <path d="M5.5 16.5s2-3 6.5-3 6.5 3 6.5 3" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round"/>
-            <circle cx="12" cy="12" r="10.5" fill="none" stroke="white" strokeWidth="1.5"/>
+            <circle cx="9" cy="9" r="2.2"/>
+            <circle cx="15" cy="9" r="2.2"/>
+            <path d="M8 15 Q12 20 16 15" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
         </div>
         <div style={{ textAlign: 'center' }}>

@@ -173,10 +173,10 @@ export default function Layout() {
       <aside className="sidebar">
         <div className="sidebar-logo">
           <div className="sidebar-logo-mark">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
-              <circle cx="9" cy="9" r="2"/><circle cx="15" cy="9" r="2"/>
-              <path d="M5 17s2-3 7-3 7 3 7 3" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round"/>
-              <circle cx="12" cy="12" r="10" fill="none" stroke="white" strokeWidth="1.5"/>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="white">
+              <circle cx="9" cy="9" r="2.2"/>
+              <circle cx="15" cy="9" r="2.2"/>
+              <path d="M8 15 Q12 20 16 15" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </div>
           <div className="sidebar-logo-text">
